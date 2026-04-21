@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.logs/
+.mcp-config.json
+*.log
+npm-debug.log*
+.DS_Store
+.env
+.env.local
+.vite/
