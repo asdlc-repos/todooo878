@@ -1,0 +1,70 @@
+{
+  "strategy": "Bottom-Up",
+  "overview": "The backend todo-api has no dependencies and must exist before the frontend can consume it, so it is built first. The todo-web SPA depends on the API and is built in phase 2.",
+  "phases": [
+    {
+      "phase": 1,
+      "name": "Backend Foundation",
+      "description": "Independent backend API providing auth, tasks, and categories endpoints.",
+      "components": [
+        {
+          "name": "todo-api",
+          "componentType": "service",
+          "language": "Go",
+          "deployment": "Docker",
+          "responsibilities": [
+            "Authenticate users with bcrypt-hashed passwords and issue 7-day JWT session cookies",
+            "Provide CRUD endpoints for tasks and categories with per-user isolation",
+            "Validate inputs (non-empty titles, due dates within today..+10y)",
+            "Support filtering by category/status and sorting by due date",
+            "Expose /health endpoint and enforce CSRF via double-submit cookie"
+          ],
+          "architectureContext": "Stateless Go HTTP service on port 9090 consumed by the todo-web SPA over /api. Holds data in an in-memory thread-safe store behind an interface for future swap.",
+          "keyConsiderations": [
+            "Use sync.RWMutex-backed maps; design store behind interface for swap",
+            "JWT via golang-jwt/jwt/v5 in HttpOnly Secure SameSite=Lax cookie",
+            "CSRF double-submit: csrf cookie + X-CSRF-Token header on mutations",
+            "Return 403 on cross-user access; 400 for validation errors with {error} JSON",
+            "CORS with credentials for web origin; multi-stage Docker to distroless"
+          ],
+          "apiContract": "openapi: 3.0.3\ninfo:\n  title: Todooo API\n  version: 1.0.0\nservers:\n  - url: /api\npaths:\n  /health:\n    get:\n      summary: Health check\n      responses:\n        '200': { description: OK }\n  /auth/register:\n    post:\n      summary: Register a new user\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [email, password]\n              properties:\n                email: { type: string, format: email }\n                password: { type: string, minLength: 8 }\n      responses:\n        '201': { description: Created }\n        '409': { description: Email exists }\n  /auth/login:\n    post:\n      summary: Login\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [email, password]\n              properties:\n                email: { type: string }\n                password: { type: string }\n      responses:\n        '200': { description: OK, sets session cookie }\n        '401': { description: Invalid credentials }\n  /auth/logout:\n    post:\n      summary: Logout\n      responses:\n        '204': { description: Session terminated }\n  /auth/me:\n    get:\n      summary: Current user\n      responses:\n        '200': { description: OK }\n        '401': { description: Unauthorized }\n  /categories:\n    get:\n      summary: List categories\n      responses:\n        '200': { description: OK }\n    post:\n      summary: Create category\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [name]\n              properties: { name: { type: string } }\n      responses:\n        '201': { description: Created }\n  /categories/{id}:\n    delete:\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema: { type: string }\n      responses:\n        '204': { description: Deleted }\n  /tasks:\n    get:\n      summary: List tasks\n      parameters:\n        - in: query\n          name: category\n          schema: { type: string }\n        - in: query\n          name: status\n          schema: { type: string, enum: [all, active, completed] }\n        - in: query\n          name: sort\n          schema: { type: string, enum: [due_asc, due_desc] }\n      responses:\n        '200': { description: OK }\n    post:\n      summary: Create task\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [title]\n              properties:\n                title: { type: string, minLength: 1 }\n                description: { type: string }\n                dueDate: { type: string, format: date }\n                categoryId: { type: string, nullable: true }\n      responses:\n        '201': { description: Created }\n        '400': { description: Validation error }\n  /tasks/{id}:\n    get:\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema: { type: string }\n      responses:\n        '200': { description: OK }\n        '403': { description: Forbidden }\n        '404': { description: Not found }\n    put:\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema: { type: string }\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              properties:\n                title: { type: string }\n                description: { type: string }\n                dueDate: { type: string, format: date, nullable: true }\n                categoryId: { type: string, nullable: true }\n                completed: { type: boolean }\n      responses:\n        '200': { description: Updated }\n        '403': { description: Forbidden }\n    delete:\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema: { type: string }\n      responses:\n        '204': { description: Deleted }\n        '403': { description: Forbidden }\n",
+          "dependencies": []
+        }
+      ]
+    },
+    {
+      "phase": 2,
+      "name": "Frontend SPA",
+      "description": "React SPA that consumes the todo-api.",
+      "components": [
+        {
+          "name": "todo-web",
+          "componentType": "web-app",
+          "language": "TypeScript / React",
+          "deployment": "Docker",
+          "responsibilities": [
+            "Provide Register/Login/Tasks/Categories pages with routing",
+            "Call todo-api with credentials and CSRF header",
+            "Render task filters, sorting, overdue highlighting, and delete confirmation",
+            "Show toast notifications and persist unsaved form drafts in localStorage",
+            "Serve /health and runtime API base URL config via nginx"
+          ],
+          "architectureContext": "Vite-built React SPA served by nginx; talks to todo-api over /api (proxied or via ingress). Only downstream dependency is todo-api.",
+          "keyConsiderations": [
+            "fetch with credentials:'include' and X-CSRF-Token from csrf cookie",
+            "Due date picker clamped today..+10y; overdue red, completed strike-through",
+            "Responsive design (Tailwind or CSS modules); Intl.DateTimeFormat dates",
+            "Runtime config.js generated from env at container start",
+            "nginx:alpine on 8080 with static /health"
+          ],
+          "apiContract": "openapi: 3.0.3\ninfo:\n  title: Todooo Web\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      summary: Health\n      responses:\n        '200': { description: OK }\n",
+          "dependencies": [
+            "todo-api"
+          ]
+        }
+      ]
+    }
+  ],
+  "sourceSpec": "spec-v1",
+  "sourceDesign": "design-v1"
+}
