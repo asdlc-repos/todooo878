@@ -1,0 +1,11 @@
+.logs/
+.mcp-config.json
+*.log
+bin/
+dist/
+out/
+.env
+.env.*
+.DS_Store
+.idea/
+.vscode/
