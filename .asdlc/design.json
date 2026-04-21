@@ -1,0 +1,46 @@
+{
+  "overview": "Todooo is a two-component cloud-native task management system: a React SPA frontend and a Go backend API. The frontend communicates with the backend over HTTPS/REST using JWT-based session cookies, and the backend persists users, categories, and tasks in an embedded/in-memory store abstraction.",
+  "requirements": [
+    "Users register with unique email and password; passwords hashed with bcrypt",
+    "Login validates credentials and issues a 7-day session (JWT in HttpOnly cookie)",
+    "Logout terminates the session",
+    "CRUD tasks with title (required), description, due date, category, completion status",
+    "Unique ID per task; title non-empty validation",
+    "Delete confirmation flow (client-side)",
+    "Custom categories per user; filter by category including Uncategorized",
+    "Filter by all/active/completed; sort by due date asc/desc",
+    "Due dates from today through +10 years; overdue highlighting",
+    "Strict per-user data isolation; 403 on accessing other users' resources",
+    "CSRF protection and HTTPS",
+    "\u003c500ms CRUD response; support 100 concurrent users; up to 1000 tasks per user",
+    "Responsive UI; success/error toasts; local draft persistence of unsaved forms",
+    "/health endpoint on every component"
+  ],
+  "components": [
+    {
+      "name": "todo-api",
+      "componentType": "service",
+      "language": "Go",
+      "dependsOn": [],
+      "entrypoint": "deployment/service",
+      "buildpack": "docker",
+      "appPath": "/todo-api",
+      "openAPISpec": "openapi: 3.0.3\ninfo:\n  title: Todooo API\n  version: 1.0.0\nservers:\n  - url: /api\npaths:\n  /health:\n    get:\n      summary: Health check\n      responses:\n        '200': { description: OK }\n  /auth/register:\n    post:\n      summary: Register a new user\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [email, password]\n              properties:\n                email: { type: string, format: email }\n                password: { type: string, minLength: 8 }\n      responses:\n        '201': { description: Created }\n        '409': { description: Email exists }\n  /auth/login:\n    post:\n      summary: Login\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [email, password]\n              properties:\n                email: { type: string }\n                password: { type: string }\n      responses:\n        '200': { description: OK, sets session cookie }\n        '401': { description: Invalid credentials }\n  /auth/logout:\n    post:\n      summary: Logout\n      responses:\n        '204': { description: Session terminated }\n  /auth/me:\n    get:\n      summary: Current user\n      responses:\n        '200': { description: OK }\n        '401': { description: Unauthorized }\n  /categories:\n    get:\n      summary: List categories\n      responses:\n        '200': { description: OK }\n    post:\n      summary: Create category\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [name]\n              properties: { name: { type: string } }\n      responses:\n        '201': { description: Created }\n  /categories/{id}:\n    delete:\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema: { type: string }\n      responses:\n        '204': { description: Deleted }\n  /tasks:\n    get:\n      summary: List tasks\n      parameters:\n        - in: query\n          name: category\n          schema: { type: string }\n        - in: query\n          name: status\n          schema: { type: string, enum: [all, active, completed] }\n        - in: query\n          name: sort\n          schema: { type: string, enum: [due_asc, due_desc] }\n      responses:\n        '200': { description: OK }\n    post:\n      summary: Create task\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              required: [title]\n              properties:\n                title: { type: string, minLength: 1 }\n                description: { type: string }\n                dueDate: { type: string, format: date }\n                categoryId: { type: string, nullable: true }\n      responses:\n        '201': { description: Created }\n        '400': { description: Validation error }\n  /tasks/{id}:\n    get:\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema: { type: string }\n      responses:\n        '200': { description: OK }\n        '403': { description: Forbidden }\n        '404': { description: Not found }\n    put:\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema: { type: string }\n      requestBody:\n        required: true\n        content:\n          application/json:\n            schema:\n              type: object\n              properties:\n                title: { type: string }\n                description: { type: string }\n                dueDate: { type: string, format: date, nullable: true }\n                categoryId: { type: string, nullable: true }\n                completed: { type: boolean }\n      responses:\n        '200': { description: Updated }\n        '403': { description: Forbidden }\n    delete:\n      parameters:\n        - in: path\n          name: id\n          required: true\n          schema: { type: string }\n      responses:\n        '204': { description: Deleted }\n        '403': { description: Forbidden }\n",
+      "componentAgentInstructions": "Build a Go backend using net/http on port 9090. Use an in-memory thread-safe store (sync.RWMutex) with maps for users, categories, and tasks; design storage behind an interface so it could be swapped later. Use bcrypt (golang.org/x/crypto/bcrypt) for password hashing. Issue JWT (github.com/golang-jwt/jwt/v5) with 7-day expiry set as HttpOnly, Secure, SameSite=Lax cookie named 'session'. Implement CSRF via double-submit cookie: issue 'csrf' cookie (non-HttpOnly) on login; require matching X-CSRF-Token header on POST/PUT/DELETE. Endpoints per OpenAPI. Validate task title non-empty; validate dueDate is between today and +10 years when provided. Enforce per-user ownership on every task/category access and return 403 otherwise. Support query filters (category, status=all|active|completed) and sort (due_asc|due_desc; nulls last). GET /tasks returns up to 1000 items. Enable CORS for the web app origin with credentials. Provide GET /health returning 200 JSON {\"status\":\"ok\"}. Use UUIDs for IDs. Log errors; return user-friendly JSON {error:string}. Dockerfile: multi-stage Go build, final distroless/alpine, EXPOSE 9090."
+    },
+    {
+      "name": "todo-web",
+      "componentType": "web-app",
+      "language": "TypeScript / React",
+      "dependsOn": [
+        "todo-api"
+      ],
+      "entrypoint": "deployment/web-application",
+      "buildpack": "docker",
+      "appPath": "/todo-web",
+      "openAPISpec": "openapi: 3.0.3\ninfo:\n  title: Todooo Web\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      summary: Health\n      responses:\n        '200': { description: OK }\n",
+      "componentAgentInstructions": "Build a React + TypeScript SPA using Vite. Use React Router for /login, /register, /tasks, /categories. Use a simple state library (Zustand or React Context). Call the todo-api via fetch with credentials:'include' and X-CSRF-Token header read from the csrf cookie. Pages: Register, Login, Tasks (list with filters: all/active/completed, category dropdown, sort by due date asc/desc), Task form modal (title required, description, due date picker limited to today..+10y, category select), Categories manager. Visually highlight overdue tasks (dueDate \u003c today \u0026\u0026 !completed) in red; strike-through completed tasks. Confirm dialog before delete. Display toast messages on success/error. Persist unsaved form data to localStorage keyed by form, clear on submit/cancel. Responsive CSS (Tailwind or CSS modules) for desktop/tablet/mobile. Format dates with Intl.DateTimeFormat. Serve via nginx:alpine on port 8080; include /health static file returning 200. Build stage: node:20-alpine. Nginx config should proxy /api to the BACKEND_URL env or rely on ingress; default to relative /api. Include a small runtime config.js generated from env at container start for API base URL."
+    }
+  ],
+  "sourceSpec": "spec-v1"
+}
